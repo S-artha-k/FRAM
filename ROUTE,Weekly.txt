@@ -1,0 +1,118 @@
+#Package installation
+install.packages("quantmod")
+install.packages("tseries")
+install.packages("ggplot2")
+install.packages("forecast")
+install.packages("rmgarch")
+install.packages("anytime")
+install.packages("readxl")
+
+library(quantmod)
+library(tseries)
+library(ggplot2)
+library(forecast)
+library(rmgarch)
+library(anytime)
+library(readxl)
+### 1.1 BETA estimation using CAPM Model ###
+#Weekly data for ^NSE and ROUTE
+NSE_w<-getSymbols.yahoo("^NSEI", from="2020-11-02", to="2023-10-26",verbose=F,auto.assign=F, periodicity = "weekly")
+head(NSE_w,5)
+route_w<-getSymbols.yahoo("ROUTE.NS", from="2020-11-02", to="2023-10-26",verbose=F, auto.assign=F, periodicity = "weekly")
+head(route_w,5)
+
+#T_bills data
+T_Bills_w<-read_excel("T-BIlls_2023.xlsx",sheet="W")
+T_Bills_w<-as.data.frame(T_Bills_w)
+head(T_Bills_w)
+T_Bills_w$Week<-anytime(T_Bills_w$Week)
+rownames(T_Bills_w)<-as.Date(T_Bills_w[,1])
+T_Bills_w_xts<-xts(T_Bills_w[,-1],order.by=T_Bills_w[,1])
+head(T_Bills_w_xts,5)
+
+#Estimating BETA using CAPM model
+
+#Dataframe of closing prices
+closing_w<-cbind(NSE_w$NSEI.Close, route_w$ROUTE.NS.Close)
+head(closing_w)
+
+#Calculating the returns
+plot(closing_w$NSEI.Close,mar=c(6,4.1,4.1,2.1))
+plot(closing_w$ROUTE.NS.Close, mar=c(6,4.1,4.1,2.1))
+
+returns_w<-as.xts(tail(data.frame(closing_w),-1)/head(data.frame(closing_w),-1) - 1)
+head(returns_w,5)
+
+w_ret_route<-returns_w$ROUTE.NS.Close
+w_ret_route<-na.omit(w_ret_route)
+plot(w_ret_route)
+
+#mean and variance
+#mean(w_ret_route)
+#var(w_ret_route)
+
+w_ret_nifty<-returns_w$NSEI.Close
+w_ret_nifty<-na.omit(w_ret_nifty)
+
+plot(w_ret_nifty,mar=c(6,4.1,4.1,2.1))
+
+#Measuring excess returns
+exnifty_w<-returns_w$NSEI.Close-T_Bills_w_xts
+head(exnifty_w,5)
+exroute_w<-returns_w$ROUTE.NS.Close-T_Bills_w_xts
+head(exroute_w,5)
+
+#Running the regression model
+regression_w<-lm(exroute_w~exnifty_w)
+#slope parameter is beta in CAPM model
+summary(regression_w)
+
+### 1.2 ARIMA Modelling ###
+#Getting the data
+route_ar_w<-getSymbols.yahoo("ROUTE.NS", from="2020-11-02", to="2023-10-26", verbose=F, auto.assign=F, periodicity ="weekly" )
+head(route_ar_w,5)
+
+#Calculating the returns
+returns_route_ar_w<-as.xts(tail(data.frame(route_ar_w$ROUTE.NS.Close),-1)/head(data.frame(route_ar_w$ROUTE.NS.Close),-1) - 1, frequency=52)
+colnames(returns_route_ar_w)<-"Returns_W"
+head(returns_route_ar_w,5)
+
+plot(route_ar_w$ROUTE.NS.Close)
+plot(returns_route_ar_w$Returns_W)
+
+#Identifying the model
+adf.test(returns_route_ar_w,alternative=c("stationary"))
+#p-value <0.05 - returns are stationary
+
+#ACF and PACF plots for getting order of AR and MA terms
+plot(acf(returns_route_ar_w$Returns_W,lag.max = 10))#for AR
+plot(pacf(returns_route_ar_w$Returns_W,lag.max=10))#for MA
+
+arima_final_w<-arima(returns_route_ar_w$Returns_W,order=c(1,0,1))
+arima_final_w
+
+#Predicting using this model
+predicted_w<-predict(arima_final_w,n.ahead=10)
+predicted_w
+#Diagnosis of the model
+tsdiag(arima_final_w)
+
+### GARCH and EGARCH models
+route_ge_w<-getSymbols("ROUTE.NS",from="2020-11-02", to="2023-10-26")
+r_route_ge_w<-weeklyReturn(ROUTE.NS)
+head(r_route_ge_w,5)
+
+#Implementing univariate GARCH
+ug_spec_w=ugarchspec()
+ug_spec_w
+#Implementing EGARCH
+eg_spec_w=ugarchspec(variance.model=list(model="eGARCH"))
+eg_spec_w
+
+#Estimating the models
+ugfit_w=ugarchfit(spec=ug_spec_w, data=r_route_ge_w)
+ugfit_w#lower aic value models are better
+
+#Forecasting
+ugforecast_w=ugarchforecast(ugfit_w,n.ahead = 10)
+ugforecast_w
